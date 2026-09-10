@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    env_file: .env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  migrate:
+    build:
+      context: .
+      target: migrator
+    env_file: .env
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: ${DATABASE_URL}
+    command: ["up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  adex:
+    build:
+      context: .
+      target: app
+    env_file: .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+    init: true
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
